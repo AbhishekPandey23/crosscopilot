@@ -35,3 +35,12 @@ The easiest way to deploy your Next.js app is to use the [Vercel Platform](https
 
 Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
 # crosscopilot
+
+-----------------------------------------------------------
+# TODO 1
+ Rest of the details about the Business Profile or Freelancer Profile will be updated in the dashboard Profile page & then save it to the database as an update.
+
+-----------------------------------------------------------
+
+# TODO 2
+ Add Billing section into the user profile page along with the payment methods and logout button. (Use the design from v0.dev dashboard layout.)
