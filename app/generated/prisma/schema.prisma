@@ -1,0 +1,308 @@
+generator client {
+  provider = "prisma-client-js"
+  output   = "../app/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ==========================================================
+// ENUMS
+// ==========================================================
+
+enum VendorType {
+  INDIVIDUAL
+  BUSINESS
+}
+
+enum IntakeType {
+  RFP
+  RFQ
+}
+
+enum ProposalStatus {
+  DRAFT
+  REVIEW
+  FINAL
+  SENT
+  WON
+  LOST
+}
+
+enum KnowledgeType {
+  PROJECT
+  DOCUMENT
+  PROPOSAL
+  SERVICE
+}
+
+enum OnboardingStatus {
+  NOT_STARTED
+  IN_PROGRESS
+  COMPLETED
+}
+
+// ==========================================================
+// USER (VENDOR ACCOUNT)
+// ==========================================================
+
+model User {
+  id         String     @id
+  email      String     @unique
+  name       String?
+  vendorType VendorType
+
+  // ONBOARDING (ACCOUNT LEVEL)
+  onboardingStatus OnboardingStatus @default(NOT_STARTED)
+  onboardingStep   Int              @default(0)
+  onboardingData   Json?
+
+  freelancerProfile FreelancerProfile?
+  companyProfile    CompanyProfile?
+
+  intakes   IntakeDocument[]
+  proposals Proposal[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// ==========================================================
+// VENDOR PROFILES (CHOOSE ONE)
+// ==========================================================
+
+model FreelancerProfile {
+  id     String @id @default(uuid())
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id])
+
+  // CORE INFO
+  title      String?
+  bio        String?
+  experience Int?
+  skills     String[]
+  websiteUrl String?
+
+  // ONBOARDING (PROFILE LEVEL)
+  onboardingStatus OnboardingStatus @default(IN_PROGRESS)
+  onboardingStep   Int              @default(1)
+  onboardingData   Json?
+
+  services  Service[]
+  projects  Project[]
+  documents VendorDocument[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model CompanyProfile {
+  id     String @id @default(uuid())
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id])
+
+  // CORE INFO
+  name        String
+  description String?
+  industry    String[]
+  skills      String[]
+  websiteUrl  String?
+
+  // ONBOARDING (PROFILE LEVEL)
+  onboardingStatus OnboardingStatus @default(IN_PROGRESS)
+  onboardingStep   Int              @default(1)
+  onboardingData   Json?
+
+  services  Service[]
+  projects  Project[]
+  documents VendorDocument[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// ==========================================================
+// SERVICES & PRICING
+// ==========================================================
+
+model Service {
+  id          String  @id @default(uuid())
+  name        String
+  description String?
+  currency    String
+
+  pricing ServicePricing[]
+
+  freelancerProfileId String?
+  freelancerProfile   FreelancerProfile? @relation(fields: [freelancerProfileId], references: [id])
+
+  companyProfileId String?
+  companyProfile   CompanyProfile? @relation(fields: [companyProfileId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model ServicePricing {
+  id        String  @id @default(uuid())
+  serviceId String
+  service   Service @relation(fields: [serviceId], references: [id])
+
+  model    String // hourly | fixed | package
+  amount   Decimal @db.Decimal(20, 2)
+  metadata Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// ==========================================================
+// VENDOR KNOWLEDGE BASE (RAG CORE)
+// ==========================================================
+
+model VendorDocument {
+  id        String        @id @default(uuid())
+  name      String
+  type      KnowledgeType
+  rawText   String
+  embedding Bytes
+  metadata  Json?
+
+  freelancerProfileId String?
+  freelancerProfile   FreelancerProfile? @relation(fields: [freelancerProfileId], references: [id])
+
+  companyProfileId String?
+  companyProfile   CompanyProfile? @relation(fields: [companyProfileId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Project {
+  id          String   @id @default(uuid())
+  name        String
+  description String?
+  skills      String[]
+  link        String?
+
+  freelancerProfileId String?
+  freelancerProfile   FreelancerProfile? @relation(fields: [freelancerProfileId], references: [id])
+
+  companyProfileId String?
+  companyProfile   CompanyProfile? @relation(fields: [companyProfileId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// ==========================================================
+// INTAKE DOCUMENT (RFP / RFQ)
+// ==========================================================
+
+model IntakeDocument {
+  id     String @id @default(uuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id])
+
+  type       IntakeType
+  title      String?
+  clientName String?
+  rawText    String
+  metadata   Json?
+
+  sections   IntakeSection[]
+  embeddings IntakeEmbedding[]
+  proposals  Proposal[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model IntakeSection {
+  id       String         @id @default(uuid())
+  intakeId String
+  intake   IntakeDocument @relation(fields: [intakeId], references: [id])
+
+  title   String
+  content String
+}
+
+model IntakeEmbedding {
+  id       String         @id @default(uuid())
+  intakeId String
+  intake   IntakeDocument @relation(fields: [intakeId], references: [id])
+
+  chunk  String
+  vector Bytes
+}
+
+// ==========================================================
+// AI-GENERATED PROPOSALS
+// ==========================================================
+
+model Proposal {
+  id     String @id @default(uuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id])
+
+  intakeId String?
+  intake   IntakeDocument? @relation(fields: [intakeId], references: [id])
+
+  status  ProposalStatus @default(DRAFT)
+  title   String?
+  summary String?
+
+  sections ProposalSection[]
+  pricing  ProposalPricing[]
+  versions ProposalVersion[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model ProposalSection {
+  id         String   @id @default(uuid())
+  proposalId String
+  proposal   Proposal @relation(fields: [proposalId], references: [id])
+
+  title   String
+  content String
+}
+
+model ProposalPricing {
+  id         String   @id @default(uuid())
+  proposalId String
+  proposal   Proposal @relation(fields: [proposalId], references: [id])
+
+  serviceId String?
+  amount    Decimal @db.Decimal(20, 2)
+  details   Json?
+
+  createdAt DateTime @default(now())
+}
+
+model ProposalVersion {
+  id         String   @id @default(uuid())
+  proposalId String
+  proposal   Proposal @relation(fields: [proposalId], references: [id])
+
+  snapshot  Json
+  createdAt DateTime @default(now())
+}
+
+// ==========================================================
+// AI GENERATION TRACE (DEBUG + ENTERPRISE)
+// ==========================================================
+
+model AIGeneration {
+  id       String @id @default(uuid())
+  entity   String // PROPOSAL | RFP | RFQ
+  entityId String
+  prompt   String
+  output   Json
+  model    String
+  metrics  Json?
+
+  createdAt DateTime @default(now())
+}

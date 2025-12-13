@@ -1,0 +1,363 @@
+generator client {
+  provider = "prisma-client-js"
+  output   = "../app/generated/prisma"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+/**
+ * -----------------------------------------------------------
+ * ENUMS
+ * -----------------------------------------------------------
+ */
+
+enum VendorType {
+  INDIVIDUAL
+  BUSINESS
+}
+
+enum Industry {
+  SOFTWARE_DEVELOPMENT
+  WEB_DEVELOPMENT
+  MOBILE_DEVELOPMENT
+  UI_UX_DESIGN
+  SEO
+  DIGITAL_MARKETING
+}
+
+enum UserRole {
+  ADMIN
+  MEMBER
+  VIEWER
+}
+
+enum ProposalStatus {
+  DRAFT
+  REVIEW
+  SENT
+  WON
+  LOST
+  ARCHIVED
+}
+
+/**
+ * -----------------------------------------------------------
+ * USER & PROFILE MODELS
+ * -----------------------------------------------------------
+ */
+
+model User {
+  id       String  @id @unique
+  email    String  @unique
+  phone    String?
+  fullName String
+  avatar   String?
+
+  type VendorType
+
+  freelancerProfile FreelancerProfile?
+  companyProfile    CompanyProfile?
+
+  rfpUploads RFP[]
+  proposals  Proposal[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  rfqs RFQ[]
+}
+
+model FreelancerProfile {
+  id     String @id @default(uuid())
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id])
+
+  role         UserRole @default(ADMIN)
+  title        String
+  description  String?
+  experience   Int
+  portfolioUrl String[]
+
+  websiteUrl   String?
+  linkedInUrl  String?
+  twitterUrl   String?
+  facebookUrl  String?
+  instagramUrl String?
+  youtubeUrl   String?
+
+  onboardingStep Int     @default(1)
+  onboardingData Json?
+  onboardingDone Boolean @default(false)
+
+  industry Industry[]
+  skills   String[]
+
+  services  Service[]
+  projects  Project[]
+  documents Document[]
+  proposals Proposal[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model CompanyProfile {
+  id     String @id @default(uuid())
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id])
+
+  role        UserRole   @default(ADMIN)
+  name        String
+  description String?
+  industry    Industry[]
+  skills      String[]
+
+  websiteUrl   String?
+  linkedInUrl  String?
+  twitterUrl   String?
+  facebookUrl  String?
+  instagramUrl String?
+  youtubeUrl   String?
+
+  onboardingStep Int     @default(1)
+  onboardingData Json?
+  onboardingDone Boolean @default(false)
+
+  services  Service[]
+  projects  Project[]
+  documents Document[]
+  proposals Proposal[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+/**
+ * -----------------------------------------------------------
+ * SERVICE, PROJECT, DOCUMENT MODELS
+ * -----------------------------------------------------------
+ */
+
+model Service {
+  id          String           @id @default(uuid())
+  name        String
+  description String?
+  currency    String? // currency of the service (e.g. "USD", "EUR", "GBP", "INR")
+  pricing     ServicePricing[]
+
+  freelancerProfileId String?
+  freelancerProfile   FreelancerProfile? @relation(fields: [freelancerProfileId], references: [id])
+
+  companyProfileId String?
+  companyProfile   CompanyProfile? @relation(fields: [companyProfileId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  proposalPricings ProposalPricing[]
+}
+
+model ServicePricing {
+  id        String  @id @default(uuid())
+  serviceId String
+  service   Service @relation(fields: [serviceId], references: [id])
+
+  pricingModel String // "hourly", "fixed", "package"
+  basePrice    Decimal? @db.Decimal(20, 2)
+  hourlyRate   Decimal? @db.Decimal(20, 2)
+  packagePrice Decimal? @db.Decimal(20, 2)
+  metadata     Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Project {
+  id          String     @id @default(uuid())
+  name        String
+  description String
+  industry    Industry[]
+  skills      String[]
+  link        String?
+
+  freelancerProfileId String?
+  freelancerProfile   FreelancerProfile? @relation(fields: [freelancerProfileId], references: [id])
+
+  companyProfileId String?
+  companyProfile   CompanyProfile? @relation(fields: [companyProfileId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Document {
+  id          String  @id @default(uuid())
+  name        String
+  description String?
+  url         String?
+  filename    String
+  storagePath String
+  fileType    String
+
+  freelancerProfileId String?
+  freelancerProfile   FreelancerProfile? @relation(fields: [freelancerProfileId], references: [id])
+
+  companyProfileId String?
+  companyProfile   CompanyProfile? @relation(fields: [companyProfileId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+/**
+ * -----------------------------------------------------------
+ * RFP PROCESSING MODELS
+ * -----------------------------------------------------------
+ */
+
+model RFP {
+  id     String @id @default(uuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id])
+
+  title      String?
+  rawText    String // full extracted or pasted RFP text
+  metadata   Json?
+  fileUrl    String?
+  sourceType String // "UPLOAD" | "PASTE" | "URL"
+
+  sections   RFPSection[]
+  embeddings RFPEmbedding[]
+  proposals  Proposal[]
+
+  createdAt DateTime @default(now())
+}
+
+model RFPSection {
+  id    String @id @default(uuid())
+  rfpId String
+  rfp   RFP    @relation(fields: [rfpId], references: [id])
+
+  title    String
+  content  String
+  metadata Json?
+
+  createdAt DateTime @default(now())
+}
+
+model RFPEmbedding {
+  id    String @id @default(uuid())
+  rfpId String
+  rfp   RFP    @relation(fields: [rfpId], references: [id])
+
+  chunk  String
+  vector Bytes // embedding vector
+  type   String // "RFP" | "PROPOSAL" | "STRATEGY"
+
+  createdAt DateTime @default(now())
+}
+
+/**
+ * -----------------------------------------------------------
+ * AI-GENERATED PROPOSAL MODELS
+ * -----------------------------------------------------------
+ */
+
+model Proposal {
+  id String @id @default(uuid())
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id])
+
+  rfpId String?
+  rfp   RFP?    @relation(fields: [rfpId], references: [id])
+
+  rfqId String?
+  rfq   RFQ?    @relation(fields: [rfqId], references: [id])
+
+  status   ProposalStatus @default(DRAFT)
+  title    String?
+  summary  String?
+  metadata Json?
+
+  sections ProposalSection[]
+  pricing  ProposalPricing[]
+  versions ProposalVersion[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  companyProfiles CompanyProfile[]
+
+  freelancerProfiles FreelancerProfile[]
+}
+
+model ProposalSection {
+  id         String   @id @default(uuid())
+  proposalId String
+  proposal   Proposal @relation(fields: [proposalId], references: [id])
+
+  title    String
+  content  String
+  metadata Json?
+
+  createdAt DateTime @default(now())
+}
+
+model ProposalPricing {
+  id         String   @id @default(uuid())
+  proposalId String
+  proposal   Proposal @relation(fields: [proposalId], references: [id])
+
+  serviceId String?
+  service   Service? @relation(fields: [serviceId], references: [id])
+
+  model   String
+  amount  Decimal @db.Decimal(20, 2)
+  details Json?
+
+  createdAt DateTime @default(now())
+}
+
+model ProposalVersion {
+  id         String   @id @default(uuid())
+  proposalId String
+  proposal   Proposal @relation(fields: [proposalId], references: [id])
+
+  content   Json // full proposal snapshot
+  createdAt DateTime @default(now())
+}
+
+// -----------------------------
+// RFQ MODEL
+// -----------------------------
+
+model RFQ {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id])
+
+  title        String
+  description  String?
+  lineItems    Json? // pricing items, quantities, custom fields
+  deliveryDate DateTime?
+  budgetRange  Json? // min/max
+
+  source        RfqSource // UPLOADED, MANUAL, IMPORTED
+  attachmentUrl String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  proposals Proposal[]
+}
+
+enum RfqSource {
+  UPLOADED
+  MANUAL
+  IMPORTED
+}
