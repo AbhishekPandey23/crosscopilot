@@ -55,7 +55,7 @@ export function NotificationModal() {
       </DialogTrigger>
       <DialogContent className="sm:max-w-md p-0">
         <DialogHeader className="p-4 pb-2 border-b border-border">
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between pr-6">
             <DialogTitle className="flex items-center gap-2">
               Notifications
               {unreadCount > 0 && (
@@ -66,7 +66,7 @@ export function NotificationModal() {
             </DialogTitle>
             {unreadCount > 0 && (
               <Button
-                variant="ghost"
+                variant="secondary"
                 size="sm"
                 className="text-xs text-muted-foreground hover:text-foreground"
                 onClick={markAllAsRead}

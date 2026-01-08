@@ -18,7 +18,6 @@ export default withAuth(
     }
 
     // For all other paths, Kinde middleware will handle auth
-    // The page-level checks will handle onboarding redirects
     return NextResponse.next();
   },
   {
