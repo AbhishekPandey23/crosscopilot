@@ -111,6 +111,7 @@ export const HeroHeader = () => {
                     <>
                       {' '}
                       <LoginLink
+                        postLoginRedirectURL="/dashboard"
                         className={cn(
                           buttonVariants({ variant: 'outline', size: 'sm' }),
                           isScrolled && 'lg:hidden'
@@ -119,6 +120,7 @@ export const HeroHeader = () => {
                         Login
                       </LoginLink>
                       <RegisterLink
+                        postLoginRedirectURL="/dashboard"
                         className={cn(
                           buttonVariants({ size: 'sm' }),
                           isScrolled && 'lg:hidden'
@@ -127,6 +129,7 @@ export const HeroHeader = () => {
                         Sign Up
                       </RegisterLink>
                       <LoginLink
+                        postLoginRedirectURL="/dashboard"
                         className={cn(
                           buttonVariants({ size: 'sm' }),
                           isScrolled ? 'lg:inline-flex' : 'hidden'

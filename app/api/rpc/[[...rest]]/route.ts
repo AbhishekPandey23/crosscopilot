@@ -1,22 +1,33 @@
 import { RPCHandler } from '@orpc/server/fetch';
 import { onError } from '@orpc/server';
-import { router } from '@/server/api';
+import { router } from '@/src/server/api';
 
 const handler = new RPCHandler(router, {
   interceptors: [
     onError((error) => {
-      console.error(error);
+      console.error('ORPC Error:', error);
     }),
   ],
 });
 
 async function handleRequest(request: Request) {
-  const { response } = await handler.handle(request, {
-    prefix: '/rpc',
-    context: {}, // Provide initial context if needed
-  });
+  try {
+    const { response } = await handler.handle(request, {
+      prefix: '/api/rpc',
+      context: {}, // User context is handled by middleware
+    });
 
-  return response ?? new Response('Not found', { status: 404 });
+    return response ?? new Response(JSON.stringify({ error: 'Not found' }), { 
+      status: 404,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  } catch (error) {
+    console.error('Handler error:', error);
+    return new Response(JSON.stringify({ error: 'Internal server error' }), { 
+      status: 500,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }
 }
 
 export const HEAD = handleRequest;

@@ -46,6 +46,7 @@ export default function TeamSection() {
         <div>
           <h1 className="text-2xl font-bold text-foreground">Team Management</h1>
           <p className="text-muted-foreground">Manage your team members and permissions</p>
+          <span className="text-sm text-destructive">Out of Service</span>
         </div>
         <Button>
           <Plus className="w-4 h-4 mr-2" />

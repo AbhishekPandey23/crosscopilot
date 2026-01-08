@@ -11,8 +11,8 @@ import {
   Settings,
   Building2,
   User,
+  Zap,
   ChevronUp,
-  Bell,
 } from "lucide-react"
 import {
   Sidebar,
@@ -42,9 +42,8 @@ import { LogoutLink } from "@kinde-oss/kinde-auth-nextjs/components"
 const baseNavItems = [
   { href: "/dashboard", label: "Overview", icon: LayoutDashboard },
   { href: "/dashboard/analytics", label: "Analytics", icon: BarChart3 },
-  { href: "/dashboard/RFP", label: "RFP", icon: FileText },
-  { href: "/dashboard/RFQ", label: "RFQ", icon: Package },
-  { href: "/dashboard/reports-section", label: "Reports", icon: FileText },
+  { href: "/dashboard/rfps", label: "RFP", icon: FileText },
+  { href: "/dashboard/source", label: "Source", icon: Zap },
 ]
 
 const businessOnlyItems = [

@@ -1,310 +1,687 @@
 generator client {
   provider = "prisma-client-js"
-  output   = "../app/generated/prisma"
+  previewFeatures = ["postgresqlExtensions"]
 }
 
 datasource db {
   provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+  extensions = [vector]
 }
 
+// ============================================================================
+// USER & ORGANIZATION
+// ============================================================================
 
-// ==========================================================
-// ENUMS
-// ==========================================================
-
-enum VendorType {
-  INDIVIDUAL
-  BUSINESS
+enum UserRole {
+  OWNER
+  ADMIN
+  MEMBER
+  VIEWER
 }
 
-enum IntakeType {
-  RFP
-  RFQ
+enum SubscriptionTier {
+  FREE
+  STARTER
+  PROFESSIONAL
+  ENTERPRISE
 }
 
-enum ProposalStatus {
-  DRAFT
-  REVIEW
-  FINAL
-  SENT
-  WON
-  LOST
+enum SubscriptionStatus {
+  ACTIVE
+  CANCELED
+  PAST_DUE
+  TRIALING
 }
-
-enum KnowledgeType {
-  PROJECT
-  DOCUMENT
-  PROPOSAL
-  SERVICE
-}
-
-enum OnboardingStatus {
-  NOT_STARTED
-  IN_PROGRESS
-  COMPLETED
-}
-
-// ==========================================================
-// USER (VENDOR ACCOUNT)
-// ==========================================================
 
 model User {
-  id          String      @id
-  email       String      @unique
-  name        String?
-  vendorType  VendorType
+  id            String   @id @default(cuid())
+  email         String   @unique
+  name          String?
+  avatarUrl     String?
+  clerkUserId   String   @unique // Clerk auth integration
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
 
-  // ONBOARDING (ACCOUNT LEVEL)
-  onboardingStatus OnboardingStatus @default(NOT_STARTED)
-  onboardingStep   Int              @default(0)
-  onboardingData   Json?
+  // Relations
+  organizations OrganizationMember[]
+  rfps          RFP[]
+  activities    ActivityLog[]
 
-  freelancerProfile FreelancerProfile?
-  companyProfile    CompanyProfile?
-
-  intakes     IntakeDocument[]
-  proposals   Proposal[]
-
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  @@map("users")
 }
 
+model Organization {
+  id                String             @id @default(cuid())
+  name              String
+  slug              String             @unique
+  logoUrl           String?
+  website           String?
+  industry          String?
+  companySize       String?
+  
+  // Subscription
+  subscriptionTier   SubscriptionTier   @default(FREE)
+  subscriptionStatus SubscriptionStatus @default(TRIALING)
+  stripeCustomerId   String?            @unique
+  stripeSubscriptionId String?          @unique
+  
+  // Usage tracking
+  usageAIAnswers    Int                @default(0)
+  usageCompliance   Int                @default(0)
+  usageBidAnalysis  Int                @default(0)
+  usageRedTeam      Int                @default(0)
+  monthlyResetAt    DateTime?
+  
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
 
-// ==========================================================
-// VENDOR PROFILES (CHOOSE ONE)
-// ==========================================================
+  // Relations
+  members           OrganizationMember[]
+  rfps              RFP[]
+  knowledgeSources  KnowledgeSource[]
+  competitors       Competitor[]
+  contentLibrary    ContentLibrary[]
 
-model FreelancerProfile {
-  id          String   @id @default(uuid())
-  userId      String   @unique
-  user        User     @relation(fields: [userId], references: [id])
-
-  // CORE INFO
-  title       String?
-  bio         String?
-  experience  Int?
-  skills      String[]
-  websiteUrl  String?
-
-  // ONBOARDING (PROFILE LEVEL)
-  onboardingStatus OnboardingStatus @default(IN_PROGRESS)
-  onboardingStep   Int              @default(1)
-  onboardingData   Json?
-
-  services    Service[]
-  projects    Project[]
-  documents   VendorDocument[]
-
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  @@map("organizations")
 }
 
-model CompanyProfile {
-  id          String   @id @default(uuid())
-  userId      String   @unique
-  user        User     @relation(fields: [userId], references: [id])
+model OrganizationMember {
+  id             String       @id @default(cuid())
+  role           UserRole     @default(MEMBER)
+  joinedAt       DateTime     @default(now())
+  
+  userId         String
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
-  // CORE INFO
-  name        String
-  description String?
-  industry    String[]
-  skills      String[]
-  websiteUrl  String?
-
-  // ONBOARDING (PROFILE LEVEL)
-  onboardingStatus OnboardingStatus @default(IN_PROGRESS)
-  onboardingStep   Int              @default(1)
-  onboardingData   Json?
-
-  services    Service[]
-  projects    Project[]
-  documents   VendorDocument[]
-
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  @@unique([userId, organizationId])
+  @@map("organization_members")
 }
 
-// ==========================================================
-// SERVICES & PRICING
-// ==========================================================
+// ============================================================================
+// CORE RFP MANAGEMENT
+// ============================================================================
 
-model Service {
-  id          String   @id @default(uuid())
-  name        String
-  description String?
-  currency    String
-
-  pricing     ServicePricing[]
-
-  freelancerProfileId String?
-  freelancerProfile   FreelancerProfile? @relation(fields: [freelancerProfileId], references: [id])
-
-  companyProfileId    String?
-  companyProfile      CompanyProfile? @relation(fields: [companyProfileId], references: [id])
-
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+enum RFPStatus {
+  DRAFT
+  IN_PROGRESS
+  REVIEW
+  SUBMITTED
+  WON
+  LOST
+  NO_BID
 }
 
-model ServicePricing {
-  id        String   @id @default(uuid())
-  serviceId String
-  service   Service  @relation(fields: [serviceId], references: [id])
-
-  model     String   // hourly | fixed | package
-  amount    Decimal  @db.Decimal(20,2)
-  metadata  Json?
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+enum RFPPriority {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
 }
 
-// ==========================================================
-// VENDOR KNOWLEDGE BASE (RAG CORE)
-// ==========================================================
+model RFP {
+  id              String       @id @default(cuid())
+  title           String
+  description     String?      @db.Text
+  status          RFPStatus    @default(DRAFT)
+  priority        RFPPriority  @default(MEDIUM)
+  
+  // Client info
+  clientName      String
+  clientIndustry  String?
+  contactEmail    String?
+  
+  // Dates
+  receivedAt      DateTime?
+  dueDate         DateTime?
+  submittedAt     DateTime?
+  
+  // Document
+  originalFileUrl String?
+  originalFileName String?
+  fileSize        Int?
+  
+  // Metadata
+  estimatedValue  Float?
+  currency        String?       @default("USD")
+  tags            String[]      @default([])
+  
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+  
+  // Relations
+  organizationId  String
+  organization    Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  
+  createdById     String
+  createdBy       User          @relation(fields: [createdById], references: [id])
+  
+  questions       RFPQuestion[]
+  complianceChecks ComplianceCheck[]
+  bidAnalysis     BidAnalysis?
+  redTeamReviews  RedTeamReview[]
+  activities      ActivityLog[]
 
-model VendorDocument {
-  id          String        @id @default(uuid())
-  name        String
-  type        KnowledgeType
-  rawText     String
-  embedding   Bytes
-  metadata    Json?
-
-  freelancerProfileId String?
-  freelancerProfile   FreelancerProfile? @relation(fields: [freelancerProfileId], references: [id])
-
-  companyProfileId    String?
-  companyProfile      CompanyProfile? @relation(fields: [companyProfileId], references: [id])
-
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  @@index([organizationId, status])
+  @@index([dueDate])
+  @@map("rfps")
 }
 
-model Project {
-  id          String   @id @default(uuid())
-  name        String
-  description String?
-  skills      String[]
-  link        String?
+// ============================================================================
+// FEATURE 1: MULTI-SOURCE AI ANSWER GENERATOR
+// ============================================================================
 
-  freelancerProfileId String?
-  freelancerProfile   FreelancerProfile? @relation(fields: [freelancerProfileId], references: [id])
-
-  companyProfileId    String?
-  companyProfile      CompanyProfile? @relation(fields: [companyProfileId], references: [id])
-
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+enum QuestionStatus {
+  PENDING
+  AI_GENERATED
+  REVIEWED
+  APPROVED
 }
 
-// ==========================================================
-// INTAKE DOCUMENT (RFP / RFQ)
-// ==========================================================
+model RFPQuestion {
+  id              String         @id @default(cuid())
+  questionText    String         @db.Text
+  sectionName     String?
+  questionNumber  String?
+  
+  // AI Answer
+  aiAnswer        String?        @db.Text
+  answerSources   Json?          // Array of source references
+  confidence      Float?         // 0-1 confidence score
+  status          QuestionStatus @default(PENDING)
+  
+  // Manual edits
+  finalAnswer     String?        @db.Text
+  editedBy        String?
+  editedAt        DateTime?
+  
+  // Tone customization (Feature 6)
+  toneStyle       String?        @default("professional")
+  targetLength    String?        @default("medium")
+  
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+  
+  rfpId           String
+  rfp             RFP            @relation(fields: [rfpId], references: [id], onDelete: Cascade)
 
-model IntakeDocument {
-  id          String      @id @default(uuid())
-  userId      String
-  user        User        @relation(fields: [userId], references: [id])
-
-  type        IntakeType
-  title       String?
-  clientName  String?
-  rawText     String
-  metadata    Json?
-
-  sections    IntakeSection[]
-  embeddings  IntakeEmbedding[]
-  proposals   Proposal[]
-
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  @@index([rfpId, status])
+  @@map("rfp_questions")
 }
 
-model IntakeSection {
-  id        String   @id @default(uuid())
-  intakeId String
-  intake   IntakeDocument @relation(fields: [intakeId], references: [id])
+// ============================================================================
+// FEATURE 2: SMART CONTENT FRESHNESS ENGINE
+// ============================================================================
 
-  title     String
-  content   String
+enum SourceType {
+  GOOGLE_DRIVE
+  NOTION
+  CONFLUENCE
+  WEBSITE
+  MANUAL_UPLOAD
+  SLACK
 }
 
-model IntakeEmbedding {
-  id        String   @id @default(uuid())
-  intakeId String
-  intake   IntakeDocument @relation(fields: [intakeId], references: [id])
-
-  chunk     String
-  vector    Bytes
+enum ContentStatus {
+  FRESH
+  NEEDS_REVIEW
+  OUTDATED
+  ARCHIVED
 }
 
-// ==========================================================
-// AI-GENERATED PROPOSALS
-// ==========================================================
+model KnowledgeSource {
+  id              String        @id @default(cuid())
+  name            String
+  type            SourceType
+  url             String?
+  
+  // Integration credentials (encrypted)
+  credentials     Json?
+  
+  // Sync settings
+  autoSync        Boolean       @default(true)
+  syncFrequency   String        @default("daily") // daily, weekly, manual
+  lastSyncedAt    DateTime?
+  nextSyncAt      DateTime?
+  
+  // Status
+  isActive        Boolean       @default(true)
+  syncErrors      Json?
+  
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+  
+  organizationId  String
+  organization    Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  
+  documents       Document[]
 
-model Proposal {
-  id          String         @id @default(uuid())
-  userId      String
-  user        User           @relation(fields: [userId], references: [id])
-
-  intakeId    String?
-  intake      IntakeDocument? @relation(fields: [intakeId], references: [id])
-
-  status      ProposalStatus @default(DRAFT)
-  title       String?
-  summary     String?
-
-  sections    ProposalSection[]
-  pricing     ProposalPricing[]
-  versions    ProposalVersion[]
-
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  @@index([organizationId, isActive])
+  @@map("knowledge_sources")
 }
 
-model ProposalSection {
-  id          String   @id @default(uuid())
-  proposalId  String
-  proposal    Proposal @relation(fields: [proposalId], references: [id])
+model Document {
+  id                String         @id @default(cuid())
+  title             String
+  content           String         @db.Text
+  fileUrl           String?
+  fileName          String?
+  fileType          String?
+  
+  // Content freshness tracking
+  contentHash       String         // MD5 hash to detect changes
+  lastVerifiedAt    DateTime       @default(now())
+  freshnessStatus   ContentStatus  @default(FRESH)
+  freshnessScore    Float?         // 0-100 score
+  needsUpdateReason String?        @db.Text
+  
+  // Metadata
+  author            String?
+  publishedAt       DateTime?
+  version           String?
+  tags              String[]       @default([])
+  
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+  
+  sourceId          String
+  source            KnowledgeSource @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+  
+  chunks            DocumentChunk[]
 
-  title       String
-  content     String
+  @@index([sourceId, freshnessStatus])
+  @@index([lastVerifiedAt])
+  @@map("documents")
 }
 
-model ProposalPricing {
-  id          String   @id @default(uuid())
-  proposalId  String
-  proposal    Proposal @relation(fields: [proposalId], references: [id])
+model DocumentChunk {
+  id            String   @id @default(cuid())
+  content       String   @db.Text
+  chunkIndex    Int
+  tokenCount    Int
+  
+  // Vector embedding for semantic search (pgvector)
+  embedding     Unsupported("vector(1536)")?
+  
+  createdAt     DateTime @default(now())
+  
+  documentId    String
+  document      Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
 
-  serviceId   String?
-  amount      Decimal  @db.Decimal(20,2)
-  details     Json?
-
-  createdAt   DateTime @default(now())
+  @@index([documentId])
+  @@map("document_chunks")
 }
 
-model ProposalVersion {
-  id          String   @id @default(uuid())
-  proposalId  String
-  proposal    Proposal @relation(fields: [proposalId], references: [id])
+// ============================================================================
+// FEATURE 3: AI COMPLIANCE VALIDATOR
+// ============================================================================
 
-  snapshot    Json
-  createdAt   DateTime @default(now())
+enum ComplianceSeverity {
+  INFO
+  WARNING
+  ERROR
+  CRITICAL
 }
 
-// ==========================================================
-// AI GENERATION TRACE (DEBUG + ENTERPRISE)
-// ==========================================================
+enum ComplianceType {
+  MISSING_SECTION
+  WORD_COUNT
+  FORMAT_VIOLATION
+  CERTIFICATION
+  DEADLINE
+  CONFLICTING_INFO
+  INCOMPLETE_ANSWER
+}
 
-model AIGeneration {
-  id        String   @id @default(uuid())
-  entity    String   // PROPOSAL | RFP | RFQ
-  entityId  String
-  prompt    String
-  output    Json
-  model     String
-  metrics   Json?
+model ComplianceCheck {
+  id              String             @id @default(cuid())
+  
+  // Check results
+  overallScore    Float              // 0-100
+  totalIssues     Int                @default(0)
+  criticalIssues  Int                @default(0)
+  errorIssues     Int                @default(0)
+  warningIssues   Int                @default(0)
+  
+  // Metadata
+  checkedAt       DateTime           @default(now())
+  checkDuration   Int?               // milliseconds
+  
+  rfpId           String
+  rfp             RFP                @relation(fields: [rfpId], references: [id], onDelete: Cascade)
+  
+  issues          ComplianceIssue[]
 
-  createdAt DateTime @default(now())
+  @@index([rfpId, checkedAt])
+  @@map("compliance_checks")
+}
+
+model ComplianceIssue {
+  id              String             @id @default(cuid())
+  type            ComplianceType
+  severity        ComplianceSeverity
+  title           String
+  description     String             @db.Text
+  location        String?            // Section/page reference
+  suggestion      String?            @db.Text
+  
+  // Status
+  isResolved      Boolean            @default(false)
+  resolvedAt      DateTime?
+  resolvedBy      String?
+  
+  createdAt       DateTime           @default(now())
+  
+  checkId         String
+  check           ComplianceCheck    @relation(fields: [checkId], references: [id], onDelete: Cascade)
+
+  @@index([checkId, severity])
+  @@map("compliance_issues")
+}
+
+// ============================================================================
+// FEATURE 4: BID/NO-BID AI ADVISOR
+// ============================================================================
+
+enum BidRecommendation {
+  STRONG_GO
+  GO
+  CAUTION
+  NO_GO
+  STRONG_NO_GO
+}
+
+model BidAnalysis {
+  id                    String            @id @default(cuid())
+  
+  // Win probability
+  winProbability        Float             // 0-100
+  recommendation        BidRecommendation
+  
+  // Scoring breakdown
+  capabilityMatch       Float             // 0-100
+  budgetAlignment       Float             // 0-100
+  timelineViability     Float             // 0-100
+  competitivePosition   Float             // 0-100
+  relationshipStrength  Float?            // 0-100
+  
+  // Analysis
+  strengths             String[]          @default([])
+  weaknesses            String[]          @default([])
+  opportunities         String[]          @default([])
+  threats               String[]          @default([])
+  dealBreakers          String[]          @default([])
+  
+  // AI insights
+  reasoning             String            @db.Text
+  keyFactors            Json              // Detailed factor breakdown
+  
+  // Estimated effort
+  estimatedHours        Float?
+  requiredResources     String[]          @default([])
+  
+  analyzedAt            DateTime          @default(now())
+  
+  rfpId                 String            @unique
+  rfp                   RFP               @relation(fields: [rfpId], references: [id], onDelete: Cascade)
+
+  @@map("bid_analyses")
+}
+
+// ============================================================================
+// FEATURE 5: COMPETITOR INTELLIGENCE ANALYZER
+// ============================================================================
+
+model Competitor {
+  id              String           @id @default(cuid())
+  name            String
+  website         String?
+  industry        String?
+  size            String?
+  
+  // Intelligence
+  strengths       String[]         @default([])
+  weaknesses      String[]         @default([])
+  differentiators String[]         @default([])
+  pricingPattern  String?          @db.Text
+  
+  // Tracking
+  lastAnalyzedAt  DateTime?
+  winRate         Float?           // Estimated win rate %
+  
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  
+  organizationId  String
+  organization    Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  
+  insights        CompetitorInsight[]
+
+  @@unique([organizationId, name])
+  @@map("competitors")
+}
+
+model CompetitorInsight {
+  id              String     @id @default(cuid())
+  title           String
+  description     String     @db.Text
+  sourceUrl       String?
+  insightType     String     // pricing, product, strategy, case_study
+  
+  // Metadata
+  confidence      Float?     // 0-100
+  relevance       Float?     // 0-100
+  
+  publishedAt     DateTime?
+  discoveredAt    DateTime   @default(now())
+  
+  competitorId    String
+  competitor      Competitor @relation(fields: [competitorId], references: [id], onDelete: Cascade)
+
+  @@index([competitorId, insightType])
+  @@map("competitor_insights")
+}
+
+// ============================================================================
+// FEATURE 7: AI RED TEAM REVIEWER
+// ============================================================================
+
+enum ReviewSeverity {
+  MINOR
+  MODERATE
+  MAJOR
+  CRITICAL
+}
+
+model RedTeamReview {
+  id                  String          @id @default(cuid())
+  
+  // Overall assessment
+  overallScore        Float           // 0-100
+  competitivenessScore Float          // 0-100
+  clarityScore        Float           // 0-100
+  persuasivenessScore Float           // 0-100
+  
+  // Summary
+  executiveSummary    String          @db.Text
+  strengthsAnalysis   String          @db.Text
+  weaknessesAnalysis  String          @db.Text
+  improvementAreas    String[]        @default([])
+  
+  reviewedAt          DateTime        @default(now())
+  reviewDuration      Int?            // milliseconds
+  
+  rfpId               String
+  rfp                 RFP             @relation(fields: [rfpId], references: [id], onDelete: Cascade)
+  
+  findings            ReviewFinding[]
+
+  @@index([rfpId, reviewedAt])
+  @@map("red_team_reviews")
+}
+
+model ReviewFinding {
+  id              String         @id @default(cuid())
+  category        String         // weak_argument, unclear_section, missing_proof, etc.
+  severity        ReviewSeverity
+  title           String
+  description     String         @db.Text
+  location        String?        // Section reference
+  suggestion      String         @db.Text
+  exampleText     String?        @db.Text
+  
+  createdAt       DateTime       @default(now())
+  
+  reviewId        String
+  review          RedTeamReview  @relation(fields: [reviewId], references: [id], onDelete: Cascade)
+
+  @@index([reviewId, severity])
+  @@map("review_findings")
+}
+
+// ============================================================================
+// CONTENT LIBRARY (Reusable approved content)
+// ============================================================================
+
+enum ContentType {
+  COMPANY_OVERVIEW
+  CASE_STUDY
+  TEAM_BIO
+  TECHNICAL_SPEC
+  PRICING
+  CERTIFICATION
+  OTHER
+}
+
+model ContentLibrary {
+  id              String       @id @default(cuid())
+  title           String
+  content         String       @db.Text
+  type            ContentType
+  
+  // Metadata
+  tags            String[]     @default([])
+  category        String?
+  keywords        String[]     @default([])
+  
+  // Usage tracking
+  timesUsed       Int          @default(0)
+  lastUsedAt      DateTime?
+  
+  // Freshness
+  lastReviewedAt  DateTime     @default(now())
+  reviewedBy      String?
+  isApproved      Boolean      @default(false)
+  
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+  
+  organizationId  String
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, type])
+  @@index([isApproved])
+  @@map("content_library")
+}
+
+// ============================================================================
+// ACTIVITY LOG & ANALYTICS
+// ============================================================================
+
+enum ActivityType {
+  RFP_CREATED
+  RFP_UPDATED
+  COMPLIANCE_CHECK
+  BID_ANALYSIS
+  AI_ANSWER_GENERATED
+  RED_TEAM_REVIEW
+  CONTENT_SYNCED
+  USER_INVITED
+  RFP_DELETED
+}
+
+model ActivityLog {
+  id              String       @id @default(cuid())
+  type            ActivityType
+  description     String
+  metadata        Json?
+  ipAddress       String?
+  userAgent       String?
+  
+  createdAt       DateTime     @default(now())
+  
+  userId          String?
+  user            User?        @relation(fields: [userId], references: [id], onDelete: SetNull)
+  
+  rfpId           String?
+  rfp             RFP?         @relation(fields: [rfpId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@index([type, createdAt])
+  @@map("activity_logs")
+}
+
+// ============================================================================
+// USAGE TRACKING FOR BILLING
+// ============================================================================
+
+enum UsageType {
+  AI_ANSWER
+  COMPLIANCE_CHECK
+  BID_ANALYSIS
+  RED_TEAM_REVIEW
+  COMPETITOR_ANALYSIS
+  DOCUMENT_SYNC
+}
+
+model UsageRecord {
+  id              String     @id @default(cuid())
+  type            UsageType
+  quantity        Int        @default(1)
+  cost            Float?     // For usage-based pricing
+  
+  // Metadata
+  metadata        Json?
+  
+  createdAt       DateTime   @default(now())
+  
+  organizationId  String
+
+  @@index([organizationId, type, createdAt])
+  @@map("usage_records")
+}
+
+// ============================================================================
+// WEBHOOKS FOR INTEGRATIONS
+// ============================================================================
+
+enum WebhookEvent {
+  RFP_SUBMITTED
+  COMPLIANCE_FAILED
+  HIGH_VALUE_OPPORTUNITY
+  BID_NO_GO
+}
+
+model Webhook {
+  id              String        @id @default(cuid())
+  url             String
+  secret          String        // For signature verification
+  events          WebhookEvent[]
+  isActive        Boolean       @default(true)
+  
+  // Status
+  lastTriggeredAt DateTime?
+  failureCount    Int           @default(0)
+  
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+  
+  organizationId  String
+
+  @@index([organizationId, isActive])
+  @@map("webhooks")
 }
